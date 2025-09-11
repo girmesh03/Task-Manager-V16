@@ -14,6 +14,9 @@ import corsOptions from "./config/corsOptions.js";
 import globalErrorHandler from "./errorHandler/ErrorController.js";
 import CustomError from "./errorHandler/CustomError.js";
 
+// Import routes
+import routes from "./routes/index.js";
+
 // Initialize express
 const app = express();
 
@@ -30,9 +33,7 @@ app.use(compression());
 if (process.env.NODE_ENV === "development") app.use(morgan("dev"));
 
 // Main API routes
-app.use("/api", (req, res, next) => {
-  res.status(200).json({ message: "api is running" });
-});
+app.use("/api", routes);
 
 // Catch-all route for undefined endpoints
 app.all("*", (req, res, next) => {
