@@ -3,6 +3,9 @@
 */*/\.env
 */.env
 
+# mock files
+backend/mock
+
 # Logs
 logs
 *.log
