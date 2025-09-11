@@ -10,3 +10,4 @@ export { TaskActivity } from "./TaskActivity.js";
 export { TaskComment } from "./TaskComment.js";
 export { Attachment } from "./Attachment.js";
 export { Notification } from "./Notification.js";
+export { Vendor } from "./Vendor.js";

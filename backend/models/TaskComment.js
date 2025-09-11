@@ -135,7 +135,7 @@ TaskCommentSchema.pre("save", function (next) {
   // Deduplicate mentions array
   if (this.isModified("mentions") && Array.isArray(this.mentions)) {
     this.mentions = [...new Set(this.mentions.map((id) => id.toString()))].map(
-      (s) => new mongoose.Types.ObjectId(s)
+      (s) => mongoose.Types.ObjectId(s)
     );
   }
 
@@ -152,13 +152,13 @@ function normalizeArrayUpdates(update, fields) {
         const val = update.$push[f];
         if (val && typeof val === "object" && Array.isArray(val.$each)) {
           const uniq = [...new Set(val.$each.map((v) => v.toString()))].map(
-            (s) => new mongoose.Types.ObjectId(s)
+            (s) => mongoose.Types.ObjectId(s)
           );
           if (!update.$addToSet[f]) update.$addToSet[f] = {};
           update.$addToSet[f].$each = uniq;
         } else {
           if (!update.$addToSet[f]) update.$addToSet[f] = {};
-          const id = new mongoose.Types.ObjectId(
+          const id = mongoose.Types.ObjectId(
             typeof val === "string" ? val : val.toString()
           );
           if (!update.$addToSet[f].$each) update.$addToSet[f].$each = [];
@@ -186,6 +186,8 @@ TaskCommentSchema.pre(
   function (next) {
     const update = this.getUpdate();
     normalizeArrayUpdates(update, ["mentions", "attachments"]);
+    // persist normalized update back to the query
+    this.setUpdate(update);
     next();
   }
 );

@@ -1,7 +1,7 @@
 // Organization.js
 import mongoose from "mongoose";
 import mongoosePaginate from "mongoose-paginate-v2";
-import { validator } from "express-validator";
+import validator from "validator";
 import { capitalize } from "../utils/helpers.js";
 import { IndustryType, IndustrySize } from "../utils/constants.js";
 
@@ -107,10 +107,19 @@ const organizationSchema = new mongoose.Schema(
   }
 );
 
-// Indexes (no partials to avoid restore hazards)
-organizationSchema.index({ name: 1 }, { unique: true });
-organizationSchema.index({ email: 1 }, { unique: true });
-organizationSchema.index({ phone: 1 }, { unique: true });
+// Indexes: make unique constraints soft-delete aware so deleted records can be recreated/restored
+organizationSchema.index(
+  { name: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } }
+);
+organizationSchema.index(
+  { email: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } }
+);
+organizationSchema.index(
+  { phone: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } }
+);
 
 // Pre save hook
 organizationSchema.pre("save", function (next) {

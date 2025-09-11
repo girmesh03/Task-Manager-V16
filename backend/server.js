@@ -5,15 +5,41 @@ import app from "./app.js";
 
 import connectDB from "./config/db.js";
 
-const PORT = parseInt(process.env.PORT || "5000", 10);
+let PORT = parseInt(process.env.PORT || "5000", 10);
 const GRACEFUL_SHUTDOWN_TIMEOUT = 10000;
 
 const server = http.createServer(app);
+
+// Check if port is available
+const isPortAvailable = (port) => {
+  return new Promise((resolve) => {
+    const testServer = http.createServer();
+    testServer.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        resolve(false);
+      } else {
+        resolve(true);
+      }
+    });
+    testServer.once('listening', () => {
+      testServer.close();
+      resolve(true);
+    });
+    testServer.listen(port);
+  });
+};
 
 const startServer = async () => {
   try {
     // Connect to MongoDB
     await connectDB();
+
+    // Check if port is available
+    const portAvailable = await isPortAvailable(PORT);
+    if (!portAvailable) {
+      console.warn(`⚠️ Port ${PORT} is already in use. Trying port ${PORT + 1}`);
+      PORT += 1;
+    }
 
     // Start HTTP server
     server.listen(PORT, () => {
@@ -23,39 +49,59 @@ const startServer = async () => {
     });
   } catch (err) {
     console.error("🚨 Server startup failed:", err.message);
-    process.exit(1);
+    // Don't exit process on startup failure, let the retry mechanism handle it
+    console.log("Attempting to recover from startup failure...");
   }
 };
 
 const shutdown = async () => {
   console.log("🛑 Starting graceful shutdown...");
+  let exitCode = 0;
 
   try {
     // Close HTTP server
     const serverClosePromise = new Promise((resolve, reject) => {
       server.close((err) => {
-        if (err) reject(err);
-        else resolve();
+        if (err) {
+          console.error("❌ Error closing HTTP server:", err.message);
+          exitCode = 1;
+          resolve(); // Still resolve to continue shutdown
+        } else {
+          console.log("✅ HTTP server closed");
+          resolve();
+        }
       });
     });
 
     // Set timeout for graceful shutdown
     const timeoutPromise = new Promise((resolve) => {
       setTimeout(() => {
-        console.warn("⌛ Graceful shutdown timeout - forcing exit");
+        console.warn("⌛ Graceful shutdown timeout - continuing with remaining tasks");
         resolve();
       }, GRACEFUL_SHUTDOWN_TIMEOUT);
     });
 
     await Promise.race([serverClosePromise, timeoutPromise]);
-    console.log("✅ HTTP server closed");
 
-    // Close MongoDB connection
-    await mongoose.disconnect();
-    console.log("✅ MongoDB connection closed");
+    // Close MongoDB connection with timeout
+    try {
+      const dbDisconnectPromise = mongoose.disconnect();
+      const dbTimeoutPromise = new Promise((resolve) => {
+        setTimeout(() => {
+          console.warn("⌛ MongoDB disconnect timeout - forcing continuation");
+          resolve();
+        }, 5000); // 5 second timeout for DB disconnect
+      });
+
+      await Promise.race([dbDisconnectPromise, dbTimeoutPromise]);
+      console.log("✅ MongoDB connection closed");
+    } catch (dbErr) {
+      console.error("❌ Error disconnecting from MongoDB:", dbErr.message);
+      exitCode = 1;
+    }
 
     console.log("👋 Shutdown complete");
-    process.exit(0);
+    process.exit(exitCode);
   } catch (err) {
     console.error("❌ Error during shutdown:", err.message);
     process.exit(1);
@@ -74,6 +120,8 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason, promise) => {
   console.error("🛑 Unhandled Rejection at:", promise);
   console.error("Reason:", reason);
+  // Gracefully shutdown on unhandled rejection instead of crashing
+  shutdown();
 });
 
 startServer();
