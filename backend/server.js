@@ -5,7 +5,7 @@ import app from "./app.js";
 
 import connectDB from "./config/db.js";
 
-let PORT = parseInt(process.env.PORT || "5000", 10);
+let PORT = parseInt(process.env.PORT || "4000", 10);
 const GRACEFUL_SHUTDOWN_TIMEOUT = 10000;
 
 const server = http.createServer(app);
@@ -14,14 +14,14 @@ const server = http.createServer(app);
 const isPortAvailable = (port) => {
   return new Promise((resolve) => {
     const testServer = http.createServer();
-    testServer.once('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
+    testServer.once("error", (err) => {
+      if (err.code === "EADDRINUSE") {
         resolve(false);
       } else {
         resolve(true);
       }
     });
-    testServer.once('listening', () => {
+    testServer.once("listening", () => {
       testServer.close();
       resolve(true);
     });
@@ -37,7 +37,9 @@ const startServer = async () => {
     // Check if port is available
     const portAvailable = await isPortAvailable(PORT);
     if (!portAvailable) {
-      console.warn(`⚠️ Port ${PORT} is already in use. Trying port ${PORT + 1}`);
+      console.warn(
+        `⚠️ Port ${PORT} is already in use. Trying port ${PORT + 1}`
+      );
       PORT += 1;
     }
 
@@ -76,7 +78,9 @@ const shutdown = async () => {
     // Set timeout for graceful shutdown
     const timeoutPromise = new Promise((resolve) => {
       setTimeout(() => {
-        console.warn("⌛ Graceful shutdown timeout - continuing with remaining tasks");
+        console.warn(
+          "⌛ Graceful shutdown timeout - continuing with remaining tasks"
+        );
         resolve();
       }, GRACEFUL_SHUTDOWN_TIMEOUT);
     });
