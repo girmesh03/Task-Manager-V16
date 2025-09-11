@@ -88,6 +88,7 @@ departmentSchema.index(
   },
   {
     unique: true,
+    partialFilterExpression: { isDeleted: false },
   }
 );
 

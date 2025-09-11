@@ -1,6 +1,6 @@
 // backend/utils/userStatus.js
 
-export const checkUserStatus = (user) => {
+ const checkUserStatus = (user) => {
   // Check if user exists
   if (!user) {
     return {
@@ -11,8 +11,18 @@ export const checkUserStatus = (user) => {
   }
 
   // Multi-tenant integrity check: department must belong to the same organization
-  const orgId = String(user.organization._id);
-  const deptOrgId = String(user.department.organization);
+  // Defensive: callers may pass non-populated references; handle gracefully
+  if (!user.organization || !user.department) {
+    return {
+      status: true,
+      message: "User organization or department not populated",
+      errorCode: "TENANT_CONTEXT_MISSING_ERROR",
+    };
+  }
+
+  const orgId = String(user.organization._id || user.organization);
+  const deptOrgId = String(user.department.organization || user.department);
+
   if (orgId !== deptOrgId) {
     return {
       status: true,
@@ -50,3 +60,5 @@ export const checkUserStatus = (user) => {
 
   return { status: false };
 };
+
+export default checkUserStatus

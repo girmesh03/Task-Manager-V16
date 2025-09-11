@@ -1,7 +1,10 @@
 // Notification.js
 import mongoose from "mongoose";
 import paginate from "mongoose-paginate-v2";
-import { NotificationType, EntityModel } from "../utils/constants.js";
+import {
+  NotificationType,
+  NotificationEntityModel,
+} from "../utils/constants.js";
 
 /**
  * @typedef {Object} Notification
@@ -48,7 +51,10 @@ const NotificationSchema = new mongoose.Schema(
     },
     entityModel: {
       type: String,
-      enum: { values: EntityModel, message: "Invalid entity model" },
+      enum: {
+        values: NotificationEntityModel,
+        message: "Invalid entity model",
+      },
     },
     recipients: [
       {
@@ -177,7 +183,7 @@ NotificationSchema.pre("save", function (next) {
   if (this.isModified("recipients") && Array.isArray(this.recipients)) {
     this.recipients = [
       ...new Set(this.recipients.map((id) => id.toString())),
-    ].map((s) => new mongoose.Types.ObjectId(s));
+    ].map((s) => mongoose.Types.ObjectId(s));
   }
   if (this.isModified("readBy") && Array.isArray(this.readBy)) {
     const map = new Map(); // userId -> {user, readAt}
@@ -185,7 +191,7 @@ NotificationSchema.pre("save", function (next) {
       const key = r.user.toString();
       if (!map.has(key) || (r.readAt && map.get(key).readAt < r.readAt)) {
         map.set(key, {
-          user: new mongoose.Types.ObjectId(key),
+          user: mongoose.Types.ObjectId(key),
           readAt: r.readAt || new Date(),
         });
       }
@@ -241,7 +247,7 @@ NotificationSchema.pre(
       }
       return {
         uniq,
-        users: Array.from(seen).map((s) => new mongoose.Types.ObjectId(s)),
+        users: Array.from(seen).map((s) => mongoose.Types.ObjectId(s)),
       };
     };
 
@@ -280,7 +286,7 @@ NotificationSchema.pre(
         for (const r of update.$set.readBy) {
           const k = (r.user || r).toString();
           const val = {
-            user: new mongoose.Types.ObjectId(k),
+            user: mongoose.Types.ObjectId(k),
             readAt: r.readAt ? new Date(r.readAt) : new Date(),
           };
           m.set(k, val);

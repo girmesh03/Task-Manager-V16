@@ -2,7 +2,7 @@
 import mongoose from "mongoose";
 import mongoosePaginate from "mongoose-paginate-v2";
 import bcrypt from "bcrypt";
-import { validator } from "express-validator";
+import validator from "validator";
 import { UserRole } from "../utils/constants.js";
 
 const profilePictureSchema = new mongoose.Schema(
@@ -98,11 +98,45 @@ const userSchema = new mongoose.Schema(
     profilePicture: profilePictureSchema,
     skills: [
       {
-        type: String,
-        trim: true,
-        maxlength: [50, "Skill cannot exceed 50 characters"],
+        skill: {
+          type: String,
+          trim: true,
+          maxlength: [50, "Skill cannot exceed 50 characters"],
+        },
+        percentage: {
+          type: Number,
+          min: [0, "Skill percentage must be between 0 and 100"],
+          max: [100, "Skill percentage must be between 0 and 100"],
+        },
       },
     ],
+    employeeId: {
+      type: Number,
+      validate: {
+        validator: (v) => v == null || (Number.isInteger(v) && v > 0),
+        message: "employeeId must be a positive integer",
+      },
+    },
+    dateOfBirth: {
+      type: Date,
+      validate: {
+        validator: function (v) {
+          if (!v) return true;
+          return new Date(v) <= new Date();
+        },
+        message: "dateOfBirth cannot be in the future",
+      },
+    },
+    joinedAt: {
+      type: Date,
+      validate: {
+        validator: function (v) {
+          if (!v) return true;
+          return new Date(v) <= new Date();
+        },
+        message: "joinedAt cannot be in the future",
+      },
+    },
   },
   {
     timestamps: true,
@@ -156,11 +190,14 @@ userSchema.index(
   },
   {
     unique: true,
+    partialFilterExpression: { isDeleted: false },
   }
 );
 
+// Ensure uniqueness of department+role for privileged roles (so multiple users may share a department
+// but only one can have the same privileged role in that department)
 userSchema.index(
-  { department: 1 },
+  { department: 1, role: 1 },
   {
     unique: true,
     partialFilterExpression: {
@@ -183,8 +220,94 @@ userSchema.pre("save", function (next) {
     this.lastName = this.lastName.trim();
   if (this.isModified("position") && this.position)
     this.position = this.position.trim();
+  // normalize skills array of objects
+  if (this.isModified("skills") && Array.isArray(this.skills)) {
+    this.skills = this.skills
+      .filter((s) => s && s.skill)
+      .map((s) => ({
+        skill: String(s.skill).trim().slice(0, 50),
+        percentage: Math.max(0, Math.min(100, Number(s.percentage) || 0)),
+      }));
+  }
   next();
 });
+
+// Validate fields on update operations
+userSchema.pre(
+  ["findOneAndUpdate", "updateOne", "updateMany"],
+  function (next) {
+    try {
+      const update = this.getUpdate() || {};
+
+      // helper to get nested fields from $set or direct
+      const getField = (name) =>
+        (update.$set && update.$set[name]) || update[name];
+
+      const employeeId = getField("employeeId");
+      if (employeeId !== undefined && employeeId !== null) {
+        if (!(Number.isInteger(employeeId) && employeeId > 0)) {
+          return next(new Error("employeeId must be a positive integer"));
+        }
+      }
+
+      const dob = getField("dateOfBirth");
+      if (dob) {
+        if (new Date(dob) > new Date())
+          return next(new Error("dateOfBirth cannot be in the future"));
+      }
+
+      const joined = getField("joinedAt");
+      if (joined) {
+        if (new Date(joined) > new Date())
+          return next(new Error("joinedAt cannot be in the future"));
+      }
+
+      const skills = getField("skills");
+      if (skills) {
+        if (!Array.isArray(skills))
+          return next(new Error("skills must be an array"));
+        for (const s of skills) {
+          if (!s || !s.skill)
+            return next(new Error("Each skill must have a skill name"));
+          if (String(s.skill).trim().length === 0)
+            return next(new Error("Skill name cannot be empty"));
+          const p = Number(s.percentage);
+          if (!Number.isFinite(p) || p < 0 || p > 100)
+            return next(
+              new Error("Skill percentage must be between 0 and 100")
+            );
+        }
+      }
+
+      next();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Ensure password is hashed when updated via update queries
+userSchema.pre(
+  ["findOneAndUpdate", "updateOne", "updateMany"],
+  async function (next) {
+    try {
+      const update = this.getUpdate() || {};
+      // look for password in $set, top-level, or $setOnInsert
+      const candidate =
+        update.$set?.password ??
+        update.password ??
+        (update.$setOnInsert && update.$setOnInsert.password);
+      if (!candidate) return next();
+      const hashed = await bcrypt.hash(candidate, 12);
+      if (update.$set) update.$set.password = hashed;
+      else update.password = hashed;
+      this.setUpdate(update);
+      next();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // Password hashing
 userSchema.pre("save", async function (next) {

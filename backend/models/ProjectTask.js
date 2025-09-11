@@ -1,7 +1,7 @@
 // ProjectTask.js
 import mongoose from "mongoose";
 import validator from "validator";
-import { BaseTask } from "./index.js";
+import { BaseTask } from "./BaseTask.js";
 
 /**
  * @typedef {Object} ProjectTask
@@ -11,38 +11,35 @@ import { BaseTask } from "./index.js";
  * @property {string} vendorContact - Contact information for the vendor
  * @property {number} estimatedCost - Estimated cost of the project
  * @property {number} actualCost - Actual cost of the project
- * @property {mongoose.Types.ObjectId[]} watchers - Array of User references
- * @property {string[]} tags - Array of tags for categorization
  */
 const ProjectTaskSchema = new mongoose.Schema(
   {
-    startDate: { type: Date },
-    dueDate: {
+    startDate: {
       type: Date,
+      required: [true, "Start date is required"],
       validate: {
         validator: function (v) {
-          if (!v || !this.startDate) return true;
+          if (!v) return false;
+          return new Date(v) >= new Date();
+        },
+        message: "Start date cannot be in the past",
+      },
+    },
+    dueDate: {
+      type: Date,
+      required: [true, "Due date is required"],
+      validate: {
+        validator: function (v) {
+          if (!v || !this.startDate) return false;
           return v >= this.startDate;
         },
         message: "Due date must be greater than or equal to start date",
       },
     },
-    vendorName: {
-      type: String,
-      required: [true, "Vendor name is required"],
-      trim: true,
-      maxlength: [100, "Vendor name cannot exceed 100 characters"],
-    },
-    vendorContact: {
-      type: String,
-      required: [true, "Vendor contact is required"],
-      trim: true,
-      validate: {
-        validator: function (v) {
-          return validator.isEmail(v) || /^\+?[1-9]\d{1,14}$/.test(v);
-        },
-        message: "Vendor contact must be a valid email or phone number",
-      },
+    vendor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Vendor",
+      required: [true, "Vendor reference is required"],
     },
     estimatedCost: {
       type: Number,
@@ -52,14 +49,6 @@ const ProjectTaskSchema = new mongoose.Schema(
       type: Number,
       min: [0, "Actual cost cannot be negative"],
     },
-    watchers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-    tags: [
-      {
-        type: String,
-        trim: true,
-        maxlength: [50, "Tag cannot exceed 50 characters"],
-      },
-    ],
   },
   {
     toJSON: BaseTask.schema.options.toJSON,
@@ -67,41 +56,12 @@ const ProjectTaskSchema = new mongoose.Schema(
   }
 );
 
-// Tenant consistency: watchers must belong to same org/department
-ProjectTaskSchema.pre("validate", async function (next) {
-  try {
-    if (!Array.isArray(this.watchers) || this.watchers.length === 0)
-      return next();
-    const countMismatch = await mongoose.model("User").countDocuments({
-      _id: { $in: this.watchers },
-      $or: [
-        { organization: { $ne: this.organization } },
-        { department: { $ne: this.department } },
-      ],
-    });
-    if (countMismatch > 0) {
-      return next(
-        new Error(
-          "All watchers must belong to the same organization and department as the task"
-        )
-      );
-    }
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
+// watcher validations moved to BaseTask
 
 ProjectTaskSchema.pre("save", function (next) {
-  if (this.isModified("vendorName") && this.vendorName) {
-    this.vendorName = this.vendorName.trim();
-  }
+  // vendor is stored as reference; vendor-related string fields should not be modified here
 
-  if (this.isModified("watchers") && Array.isArray(this.watchers)) {
-    this.watchers = [...new Set(this.watchers.map((id) => id.toString()))].map(
-      (s) => new mongoose.Types.ObjectId(s)
-    );
-  }
+  // watcher normalization moved to BaseTask
 
   if (this.startDate && this.dueDate && this.dueDate < this.startDate) {
     return next(
@@ -109,6 +69,31 @@ ProjectTaskSchema.pre("save", function (next) {
     );
   }
   next();
+});
+
+// Prevent duplicate ProjectTask per organization + department + vendor
+ProjectTaskSchema.pre("validate", async function (next) {
+  try {
+    if (!this.vendor || !this.organization || !this.department) return next();
+    const query = {
+      vendor: this.vendor,
+      organization: this.organization,
+      department: this.department,
+      isDeleted: false,
+    };
+    if (!this.isNew) query._id = { $ne: this._id };
+    const count = await mongoose.model("ProjectTask").countDocuments(query);
+    if (count > 0) {
+      return next(
+        new Error(
+          "A project with the same vendor already exists in this organization and department"
+        )
+      );
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Normalize update operations to deduplicate arrays
@@ -121,13 +106,13 @@ function normalizeArrayUpdates(update, fields) {
         const val = update.$push[f];
         if (val && typeof val === "object" && Array.isArray(val.$each)) {
           const uniq = [...new Set(val.$each.map((v) => v.toString()))].map(
-            (s) => new mongoose.Types.ObjectId(s)
+            (s) => mongoose.Types.ObjectId(s)
           );
           if (!update.$addToSet[f]) update.$addToSet[f] = {};
           update.$addToSet[f].$each = uniq;
         } else {
           if (!update.$addToSet[f]) update.$addToSet[f] = {};
-          const id = new mongoose.Types.ObjectId(
+          const id = mongoose.Types.ObjectId(
             typeof val === "string" ? val : val.toString()
           );
           if (!update.$addToSet[f].$each) update.$addToSet[f].$each = [];
@@ -143,7 +128,7 @@ function normalizeArrayUpdates(update, fields) {
       if (Array.isArray(update.$set[f])) {
         const uniq = [
           ...new Set(update.$set[f].map((id) => id.toString())),
-        ].map((s) => new mongoose.Types.ObjectId(s));
+        ].map((s) => mongoose.Types.ObjectId(s));
         update.$set[f] = uniq;
       }
     }
@@ -154,16 +139,18 @@ ProjectTaskSchema.pre(
   ["findOneAndUpdate", "updateMany", "updateOne"],
   function (next) {
     const update = this.getUpdate();
-    normalizeArrayUpdates(update, ["watchers"]);
+    normalizeArrayUpdates(update, []);
+    // persist normalized update
+    this.setUpdate(update);
     next();
   }
 );
 
 ProjectTaskSchema.index(
-  { organization: 1, department: 1, vendorName: 1 },
+  { organization: 1, department: 1, vendor: 1 },
   {
-    collation: { locale: "en", strength: 2 },
     partialFilterExpression: { isDeleted: false },
+    unique: true,
   }
 );
 

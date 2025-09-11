@@ -1,6 +1,6 @@
 // RoutineTask.js
 import mongoose from "mongoose";
-import { BaseTask } from "./index.js";
+import { BaseTask } from "./BaseTask.js";
 
 /**
  * @typedef {Object} RoutineTask
@@ -11,12 +11,14 @@ const RoutineTaskSchema = new mongoose.Schema(
   {
     date: {
       type: Date,
-      required: [true, "Date is required"],
+      required: [true, "Routine task log date is required"],
       validate: {
         validator: function (v) {
-          return v <= new Date();
+          if (!v) return false;
+          // date must not be in the future
+          return new Date(v) <= new Date();
         },
-        message: "Date cannot be in the future",
+        message: "Routine task log date can not be in future",
       },
     },
     // Explicitly define status with RoutineTask-specific constraints
@@ -39,6 +41,7 @@ const RoutineTaskSchema = new mongoose.Schema(
       },
       default: "Medium",
     },
+    materials: [{ type: mongoose.Schema.Types.ObjectId, ref: "Material" }],
   },
   {
     toJSON: BaseTask.schema.options.toJSON,
@@ -76,6 +79,16 @@ RoutineTaskSchema.index(
   { organization: 1, department: 1, date: -1 },
   { partialFilterExpression: { isDeleted: false } }
 );
+
+// Normalize materials array
+RoutineTaskSchema.pre("save", function (next) {
+  if (this.isModified("materials") && Array.isArray(this.materials)) {
+    this.materials = [
+      ...new Set(this.materials.map((id) => id.toString())),
+    ].map((s) => mongoose.Types.ObjectId(s));
+  }
+  next();
+});
 
 export const RoutineTask = BaseTask.discriminator(
   "RoutineTask",

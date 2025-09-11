@@ -1,5 +1,7 @@
-# env
+# env files
 .env
+*/*/\.env
+*/.env
 
 # Logs
 logs

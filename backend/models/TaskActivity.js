@@ -6,8 +6,9 @@ import paginate from "mongoose-paginate-v2";
  * @typedef {Object} TaskActivity
  * @property {mongoose.Types.ObjectId} task - Reference to the parent task (polymorphic)
  * @property {string} taskModel - Model name of the parent task
- * @property {string} description - Description of the activity
+ * @property {string} activity - Activity description
  * @property {mongoose.Types.ObjectId[]} attachments - Array of Attachment references
+ * @property {mongoose.Types.ObjectId[]} materials - Array of Material references
  * @property {Date} loggedAt - When the activity was logged
  * @property {mongoose.Types.ObjectId} organization - Reference to Organization
  * @property {mongoose.Types.ObjectId} department - Reference to Department
@@ -31,13 +32,14 @@ const TaskActivitySchema = new mongoose.Schema(
         message: "Invalid task model",
       },
     },
-    description: {
+    activity: {
       type: String,
-      required: [true, "Description is required"],
+      required: [true, "Activity is required"],
       trim: true,
-      maxlength: [3000, "Description cannot exceed 3000 characters"],
+      maxlength: [3000, "Activity cannot exceed 3000 characters"],
     },
     attachments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Attachment" }],
+    materials: [{ type: mongoose.Schema.Types.ObjectId, ref: "Material" }],
     loggedAt: { type: Date, default: Date.now },
     organization: {
       type: mongoose.Schema.Types.ObjectId,
@@ -119,8 +121,8 @@ TaskActivitySchema.index(
 );
 
 TaskActivitySchema.pre("save", function (next) {
-  if (this.isModified("description") && this.description) {
-    this.description = this.description.trim();
+  if (this.isModified("activity") && this.activity) {
+    this.activity = this.activity.trim();
   }
   next();
 });
@@ -157,6 +159,32 @@ TaskActivitySchema.pre("save", async function (next) {
           this.attachments = this.attachments.filter(
             (id) => !rm.has(String(id))
           );
+        }
+      }
+
+      // Materials under this activity
+      const materialIds = await mongoose
+        .model("Material")
+        .find(
+          { parent: this._id, parentModel: "TaskActivity", isDeleted: false },
+          { _id: 1 },
+          { session }
+        )
+        .lean()
+        .then((rows) => rows.map((r) => r._id));
+
+      if (materialIds.length) {
+        await mongoose
+          .model("Material")
+          .updateMany(
+            { _id: { $in: materialIds } },
+            { $set: { isDeleted: true } },
+            { session }
+          );
+
+        if (Array.isArray(this.materials) && this.materials.length) {
+          const rm = new Set(materialIds.map((id) => String(id)));
+          this.materials = this.materials.filter((id) => !rm.has(String(id)));
         }
       }
 

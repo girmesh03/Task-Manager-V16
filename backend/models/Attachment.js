@@ -1,12 +1,8 @@
 // Attachment.js
 import mongoose from "mongoose";
 import paginate from "mongoose-paginate-v2";
-import { validator } from "express-validator";
-
-/**
- * Enumerations aligned with platform-wide constants.
- */
-export const AttachmentType = ["image", "video", "document", "audio", "other"];
+import validator from "validator";
+import { AttachmentType } from "../utils/constants.js";
 
 /**
  * @typedef {Object} Attachment

@@ -1,8 +1,9 @@
 // backend/config/db.js
 import mongoose from "mongoose";
 
-const MAX_RETRIES = 5;
+// Using Infinity for continuous retries
 const INITIAL_RETRY_DELAY = 1000;
+const MAX_RETRY_DELAY = 30000; // Cap at 30 seconds
 let retryCount = 0;
 let isConnecting = false;
 
@@ -29,25 +30,47 @@ const connectWithRetry = async () => {
   } catch (error) {
     console.error(`MongoDB connection error: ${error.message}`);
 
-    if (retryCount < MAX_RETRIES) {
-      const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
-      retryCount++;
-      console.warn(
-        `Retrying connection in ${delay}ms... (${retryCount}/${MAX_RETRIES})`
-      );
-      setTimeout(connectWithRetry, delay);
-      return;
-    }
-
-    console.error("💥 MongoDB connection failed after maximum retries");
-    throw error;
+    // Calculate delay with exponential backoff, but cap it
+    const delay = Math.min(
+      INITIAL_RETRY_DELAY * Math.pow(2, retryCount),
+      MAX_RETRY_DELAY
+    );
+    retryCount++;
+    console.warn(
+      `Retrying connection in ${delay}ms... (Attempt ${retryCount})`
+    );
+    setTimeout(connectWithRetry, delay);
+    return;
   } finally {
     isConnecting = false;
   }
 };
 
+// Monitor connection state periodically
+const monitorConnection = () => {
+  setInterval(() => {
+    const state = mongoose.connection.readyState;
+    const stateMap = {
+      0: "disconnected",
+      1: "connected",
+      2: "connecting",
+      3: "disconnecting",
+    };
+    
+    if (state !== 1 && !isConnecting) {
+      console.log(`MongoDB connection state: ${stateMap[state] || "unknown"} (${state})`);
+      if (state === 0) {
+        console.log("Attempting to reconnect to MongoDB...");
+        connectWithRetry();
+      }
+    }
+  }, 30000); // Check every 30 seconds
+};
+
 const connectDB = async () => {
   await connectWithRetry();
+  monitorConnection();
+  return mongoose.connection;
 };
 
 mongoose.connection.on("connecting", () => {
@@ -60,7 +83,9 @@ mongoose.connection.on("connected", () => {
 
 mongoose.connection.on("disconnected", () => {
   console.log("🔌 MongoDB connection lost. Attempting to reconnect...");
-  if (!isConnecting) {
+  if (!isConnecting && mongoose.connection.readyState !== 1) {
+    // Reset retry count on disconnection to avoid excessive delays
+    retryCount = 0;
     setTimeout(connectWithRetry, 1000);
   }
 });

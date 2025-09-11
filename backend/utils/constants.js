@@ -5,6 +5,8 @@ export const TaskStatus = ["To Do", "In Progress", "Completed", "Pending"];
 
 export const TaskPriority = ["Low", "Medium", "High", "Urgent"];
 
+export const AttachmentType = ["image", "video", "document", "audio", "other"];
+
 export const NotificationType = [
   "TaskAssigned",
   "TaskUpdated",
@@ -15,7 +17,7 @@ export const NotificationType = [
   "System",
 ];
 
-export const EntityModel = [
+export const NotificationEntityModel = [
   "RoutineTask",
   "AssignedTask",
   "ProjectTask",
@@ -23,6 +25,8 @@ export const EntityModel = [
   "TaskComment",
   "Attachment",
 ];
+
+export const IndustrySize = ["Small", "Medium", "Large"];
 
 export const IndustryType = [
   "Hospitality",
@@ -40,5 +44,3 @@ export const IndustryType = [
   "Non-Profit",
   "Other",
 ];
-
-export const IndustrySize = ["Small", "Medium", "Large"];
